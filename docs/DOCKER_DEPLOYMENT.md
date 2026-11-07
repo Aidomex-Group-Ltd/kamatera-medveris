@@ -135,17 +135,36 @@ After deployment, verify:
 - Native PostgreSQL 18.6 is unchanged.
 - UFW remains SSH-only for inbound by default.
 
-## Update procedure
+## Image pinning and validation
 
 All images in `docker/compose.yml` are pinned. Do not use `:latest`.
+
+The deployment workflow enforces image pinning in two places:
+
+- A direct check for `:latest` in `docker/compose.yml`.
+- A pin-policy check driven by `.github/workflows/pin-policy.json`.
+
+The pin policy requires:
+
+- An explicit tag on every image.
+- Only allow-listed registries and image prefixes.
+- No `:latest`.
+
+Current policy files:
+
+- `.github/workflows/pin-policy.json`
+- `.github/workflows/pin-policy.yml`
 
 To update a service:
 
 1. Choose the new pinned tag.
-2. Update `docker/compose.yml`.
-3. Validate the compose file locally or in CI before deploy.
-4. Deploy from `main` through the workflow.
-5. Verify after deployment.
+2. If the new image is from an already-allow-listed registry and prefix,
+   update `docker/compose.yml` only.
+3. If the new image needs a new registry, prefix, or tag pattern, update
+   `.github/workflows/pin-policy.json` first and review it.
+4. Validate the compose file locally or in CI before deploy.
+5. Deploy from `main` through the workflow.
+6. Verify after deployment.
 
 Keep a short change note for image updates so rollbacks and audits are easier.
 

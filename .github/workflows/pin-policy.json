@@ -1,0 +1,22 @@
+{
+  "allowed_registries": [
+    "docker.io"
+  ],
+  "allowed_image_prefixes": [
+    "ollama/ollama",
+    "n8nio/n8n",
+    "postgres"
+  ],
+  "allowed_tag_patterns": [
+    "^[a-zA-Z0-9_.-]+$",
+    "^[a-zA-Z0-9_.-]+-alpine$",
+    "^[a-zA-Z0-9_.-]+-alpine[0-9]+$"
+  ],
+  "notes": [
+    "All Compose images must include an explicit tag.",
+    "The :latest tag is forbidden.",
+    "Only Docker Hub images are currently allowed.",
+    "Only allow-listed image name prefixes are permitted.",
+    "To add a new service, add its image prefix here first and review it."
+  ]
+}

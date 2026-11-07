@@ -101,10 +101,119 @@ jobs:
             fi
           fi
 
+  validate-images:
+    name: validate-images
+    runs-on: [self-hosted, kamatera]
+    if: |
+      github.ref == 'refs/heads/main' &&
+      (inputs.action == 'deploy' || inputs.action == 'status' ||
+       inputs.action == 'verify' || inputs.action == 'rollback') &&
+      inputs.confirm_deploy == 'CONFIRM'
+    outputs:
+      changed: ${{ steps.check.outputs.changed }}
+    steps:
+      - name: checkout main
+        uses: actions/checkout@v4
+
+      - name: detect compose image changes
+        id: check
+        run: |
+          COMPOSE_FILE="$(pwd)/docker/compose.yml"
+          POLICY_DOC="$(pwd)/.github/workflows/pin-policy.md"
+          POLICY_JSON="$(pwd)/.github/workflows/pin-policy.json"
+          if [ ! -f "$COMPOSE_FILE" ]; then
+            echo "::error::compose file not found at $COMPOSE_FILE"
+            exit 1
+          fi
+          if [ ! -f "$POLICY_DOC" ]; then
+            echo "::error::image pin policy doc not found at $POLICY_DOC"
+            exit 1
+          fi
+          if [ ! -f "$POLICY_JSON" ]; then
+            echo "::error::image pin policy JSON not found at $POLICY_JSON"
+            exit 1
+          fi
+          echo "checking image references in $COMPOSE_FILE"
+          python3 - <<'PY'
+          import re, sys, json
+          compose = open("docker/compose.yml", "r", encoding="utf-8").read()
+          policy = json.load(open(".github/workflows/pin-policy.json", "r", encoding="utf-8"))
+          images = re.findall(r"image:\s*([^\s]+)", compose)
+          if not images:
+              print("::warning::no image references found in compose file")
+              print("changed=false")
+              sys.exit(0)
+          allowed_registries = policy.get("allowed_registries", [])
+          allowed_image_prefixes = policy.get("allowed_image_prefixes", [])
+          allowed_tag_patterns = policy.get("allowed_tag_patterns", [])
+          problems = []
+          for image in images:
+              if ":" not in image:
+                  problems.append(f"unpinned image without tag: {image}")
+                  continue
+              raw = image
+              registry_part = ""
+              image_name = raw
+              if raw.startswith("docker.io/"):
+                  image_name = raw[len("docker.io/"):]
+              if "/" in image_name:
+                  candidate, after_slash = image_name.split("/", 1)
+                  if candidate == "docker.io":
+                      registry_part = ""
+                      image_name = after_slash
+                  elif re.search(r"\.|localhost", candidate):
+                      registry_part = candidate
+                      image_name = after_slash
+                  else:
+                      registry_part = ""
+              if registry_part and registry_part not in allowed_registries:
+                  problems.append(f"disallowed registry: {image}")
+                  continue
+              image_name = image_name.split("@", 1)[0]
+              if ":" not in image_name:
+                  problems.append(f"unpinned image reference: {image}")
+                  continue
+              name, tag = image_name.rsplit(":", 1)
+              if tag == "latest":
+                  problems.append(f"latest tag: {image}")
+                  continue
+              if not any(re.search(pattern, tag) for pattern in allowed_tag_patterns):
+                  problems.append(f"tag does not match allowed patterns: {image}")
+                  continue
+              if not any(image_name.startswith(prefix) for prefix in allowed_image_prefixes):
+                  problems.append(f"image name does not match an allowed prefix: {image_name}")
+                  continue
+          if problems:
+              for p in problems:
+                  print(f"::error::{p}")
+              print("changed=true")
+              sys.exit(1)
+          print("changed=false")
+          PY
+        env:
+          PYTHONPATH: "${{ github.workspace }}/.github/workflows"
+
+      - name: validate image policy
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          policy = json.load(open(".github/workflows/pin-policy.json", "r", encoding="utf-8"))
+          if not policy.get("allowed_registries"):
+              print("::error::pin policy must declare allowed_registries")
+              sys.exit(1)
+          if not policy.get("allowed_image_prefixes"):
+              print("::error::pin policy must declare allowed_image_prefixes")
+              sys.exit(1)
+          if not policy.get("allowed_tag_patterns"):
+              print("::error::pin policy must declare allowed_tag_patterns")
+              sys.exit(1)
+          print("image pin policy loaded and valid")
+          PY
+
   deploy:
     name: deploy-compose
     runs-on: [self-hosted, kamatera]
-    needs: validate
+    needs: [validate, validate-images]
     if: |
       github.ref == 'refs/heads/main' &&
       inputs.action == 'deploy' && inputs.confirm_deploy == 'CONFIRM'
@@ -129,6 +238,7 @@ jobs:
   status:
     name: status
     runs-on: [self-hosted, kamatera]
+    needs: [validate, validate-images]
     if: |
       github.ref == 'refs/heads/main' &&
       inputs.action == 'status' && inputs.confirm_deploy == 'CONFIRM'
@@ -142,6 +252,7 @@ jobs:
   verify:
     name: verify-only
     runs-on: [self-hosted, kamatera]
+    needs: [validate, validate-images]
     if: |
       github.ref == 'refs/heads/main' &&
       inputs.action == 'verify' && inputs.confirm_deploy == 'CONFIRM'
@@ -155,7 +266,7 @@ jobs:
   rollback:
     name: rollback
     runs-on: [self-hosted, kamatera]
-    needs: validate
+    needs: [validate, validate-images]
     if: |
       github.ref == 'refs/heads/main' &&
       inputs.action == 'rollback' && inputs.confirm_deploy == 'CONFIRM'
