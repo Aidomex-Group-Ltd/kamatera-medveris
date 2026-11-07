@@ -1,0 +1,80 @@
+# Common role tasks - base server setup
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+  when: ansible_os_family == "Debian"
+
+- name: Upgrade all packages
+  ansible.builtin.apt:
+    upgrade: "dist"
+    autoremove: true
+    autoclean: true
+  when: ansible_os_family == "Debian"
+
+- name: Set system timezone
+  ansible.builtin.timezone:
+    name: "{{ system_timezone }}"
+
+- name: Set hostname
+  ansible.builtin.hostname:
+    name: "{{ system_hostname }}"
+  when: system_hostname is defined
+
+- name: Install prerequisite packages
+  ansible.builtin.package:
+    name:
+      - curl
+      - wget
+      - gnupg
+      - apt-transport-https
+      - ca-certificates
+      - lsb-release
+      - software-properties-common
+    state: present
+
+- name: Install UFW
+  ansible.builtin.package:
+    name: ufw
+    state: present
+
+- name: UFW default allow SSH
+  ansible.builtin.command: ufw default allow ssh
+  when: ufw_install | bool
+
+- name: UFW allow HTTP
+  ansible.builtin.command: ufw allow http
+  when: ufw_http | bool
+
+- name: UFW allow HTTPS
+  ansible.builtin.command: ufw allow https
+  when: ufw_https | bool
+
+- name: UFW deny PostgreSQL publicly
+  ansible.builtin.command: ufw deny 5432/tcp
+  when: ufw_deny_postgres | bool
+
+- name: UFW deny Ollama publicly
+  ansible.builtin.command: ufw deny 11434/tcp
+  when: ufw_deny_ollama | bool
+
+- name: Enable UFW
+  ansible.builtin.command: ufw --force enable
+  when: ufw_enable | bool
+
+- name: Ensure persistent directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: deploy
+    group: deploy
+    mode: "0755"
+  loop:
+    - /data
+    - /data/pgdata
+    - /data/ollama-models
+    - /data/backups
+    - /data/uploads
+    - /var/log/medveris
+  when: persistent_dirs | bool

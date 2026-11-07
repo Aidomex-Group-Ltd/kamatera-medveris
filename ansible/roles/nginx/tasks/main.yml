@@ -1,0 +1,81 @@
+# Nginx role tasks - reverse proxy
+
+- name: Install Nginx
+  ansible.builtin.package:
+    name: nginx
+    state: present
+
+- name: Ensure Nginx configuration directory exists
+  ansible.builtin.file:
+    path: "/etc/nginx/conf.d"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Ensure Nginx SSL directory exists
+  ansible.builtin.file:
+    path: "/etc/nginx/ssl"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Deploy Nginx reverse proxy configuration
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: "/etc/nginx/sites-available/medveris-proxy"
+    owner: root
+    group: root
+    mode: "0644"
+  when: nginx_install | bool
+
+- name: Enable Nginx site
+  ansible.builtin.file:
+    src: "/etc/nginx/sites-available/medveris-proxy"
+    dest: "/etc/nginx/sites-enabled/medveris-proxy"
+    state: link
+  when: nginx_install | bool
+
+- name: Remove default Nginx site
+  ansible.builtin.file:
+    path: "/etc/nginx/sites-enabled/default"
+    state: absent
+  when: nginx_install | bool
+
+- name: Test Nginx configuration
+  ansible.builtin.command: "nginx -t"
+  register: nginx_test
+  changed_when: false
+  failed_when: "nginx_test.rc != 0"
+
+- name: Reload Nginx
+  ansible.builtin.service:
+    name: nginx
+    state: reloaded
+    enabled: true
+  when: nginx_test is succeeded
+
+- name: Configure TLS certificates (Cloudflare managed)
+  ansible.builtin.file:
+    path: "/etc/nginx/ssl/medveris.online"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  when: nginx_tls_configure | bool
+
+- name: Set up HTTP to HTTPS redirect
+  ansible.builtin.template:
+    src: http-to-https.conf.j2
+    dest: "/etc/nginx/conf.d/redirect.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  when: nginx_tls_redirect | bool
+
+- name: Verify Nginx is listening on ports 80 and 443
+  ansible.builtin.command: "netstat -tlnp | grep -E ':(80|443)'"
+  register: nginx_ports
+  changed_when: false
+  when: nginx_verify_ports | bool

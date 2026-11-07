@@ -1,0 +1,36 @@
+# Group variables applied to all hosts
+
+# System configuration
+system_timezone: "UTC"
+system_hostname: "medveris"
+
+# Security
+# NOTE: Current VPS state (verified 2026-11-07) is NOT hardened:
+# - PermitRootLogin yes (sshd_config)
+# - PasswordAuthentication yes (sshd_config)
+# - No UFW firewall active
+# - No fail2ban
+# These settings document the TARGET state, not current state.
+sshd_permit_root_login: "no"
+sshd_password_authentication: "no"
+sshd_authorized_key_file: "/home/deploy/.ssh/authorized_keys"
+
+# Postfix (for local email notifications, not production email)
+postfix_mailname: "medveris.local"
+postfix_main_mailer_type: "internet"
+
+# Docker settings
+docker_group: "deploy"
+docker_storage_driver: "overlay2"
+docker_exec_driver: "native"
+
+# Swap configuration
+swap_enabled: "no"
+swap_size: "2048"
+
+# Log rotation
+logrotate_max_size: "100M"
+logrotate_rotate: "7"
+
+# NOTE: k3s, containerd, and Helm are NOT in scope.
+# Approved orchestration is Docker Compose.

@@ -1,0 +1,107 @@
+# PostgreSQL role tasks
+
+- name: Install PostgreSQL
+  ansible.builtin.package:
+    name:
+      - "postgresql-{{ postgres_version }}"
+      - "postgresql-contrib-{{ postgres_version }}"
+    state: present
+  when: postgres_install | bool
+
+- name: Ensure PostgreSQL data directory exists
+  ansible.builtin.file:
+    path: "{{ postgres_data_dir }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "0700"
+
+- name: Configure PostgreSQL listening addresses
+  ansible.builtin.lineinfile:
+    path: "/etc/postgresql/{{ postgres_version }}/main/postgresql.conf"
+    regexp: "^#?listen_addresses"
+    line: "listen_addresses = '{{ postgres_listen_addresses }}'"
+  when: postgres_configure_listen | bool
+
+- name: Configure maximum connections
+  ansible.builtin.lineinfile:
+    path: "/etc/postgresql/{{ postgres_version }}/main/postgresql.conf"
+    regexp: "^#?max_connections"
+    line: "max_connections = {{ postgres_max_connections }}"
+  when: postgres_configure_max_connections | bool
+
+- name: Configure shared buffers
+  ansible.builtin.lineinfile:
+    path: "/etc/postgresql/{{ postgres_version }}/main/postgresql.conf"
+    regexp: "^#?shared_buffers"
+    line: "shared_buffers = {{ postgres_shared_buffers }}"
+  when: postgres_configure_shared_buffers | bool
+
+- name: Configure work memory
+  ansible.builtin.lineinfile:
+    path: "/etc/postgresql/{{ postgres_version }}/main/postgresql.conf"
+    regexp: "^#?work_mem"
+    line: "work_mem = {{ postgres_work_mem }}"
+  when: postgres_configure_work_mem | bool
+
+- name: Configure maintenance work memory
+  ansible.builtin.lineinfile:
+    path: "/etc/postgresql/{{ postgres_version }}/main/postgresql.conf"
+    regexp: "^#?maintenance_work_mem"
+    line: "maintenance_work_mem = {{ postgres_maintenance_work_mem }}"
+  when: postgres_configure_maint_work_mem | bool
+
+- name: Create separate PostgreSQL service account for medveris
+  ansible.builtin.user:
+    name: medveris_runtime
+    system: true
+    create_home: false
+    shell: /sbin/nologin
+  when: create_service_accounts | bool
+
+- name: Create separate PostgreSQL service account for n8n
+  ansible.builtin.user:
+    name: medveris_jobs
+    system: true
+    create_home: false
+    shell: /sbin/nologin
+  when: create_service_accounts | bool
+
+- name: Create medveris database
+  ansible.builtin.command: "su - postgres -c \"createdb -O medveris_runtime medveris_prod\""
+  args:
+    creates: "/var/lib/postgresql/{{ postgres_version }}/main/database_created"
+  when: create_database | bool
+
+- name: Create medveris jobs database
+  ansible.builtin.command: "su - postgres -c \"createdb -O medveris_jobs medveris_jobs\""
+  args:
+    creates: "/var/lib/postgresql/{{ postgres_version }}/main/jobs_database_created"
+  when: create_jobs_database | bool
+
+- name: Create n8n database role and grant permissions
+  ansible.builtin.command: "su - postgres -c \"psql -c \\\"CREATE ROLE n8n LOGIN; GRANT CONNECT ON DATABASE medveris_jobs TO n8n; GRANT USAGE ON SCHEMA public TO n8n;\\\"\""
+  when: n8n_database_setup | bool
+
+- name: Enable pg_hba.conf for SCRAM-SHA-256
+  ansible.builtin.lineinfile:
+    path: "/etc/postgresql/{{ postgres_version }}/main/pg_hba.conf"
+    regexp: '^#?scram-sha-256'
+    line: 'local all all scram-sha-256'
+  when: pg_hba_configure | bool
+
+- name: Restart PostgreSQL service
+  ansible.builtin.service:
+    name: postgresql
+    state: restarted
+    enabled: true
+  when: postgres_restart | bool
+
+- name: Verify PostgreSQL is running and accepting connections
+  ansible.builtin.command: "pg_isready -h 127.0.0.1 -U postgres"
+  register: pg_status
+  changed_when: false
+  until: pg_status.rc == 0
+  retries: 5
+  delay: 2
+  when: postgres_verify | bool

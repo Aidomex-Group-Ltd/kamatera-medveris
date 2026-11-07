@@ -1,0 +1,78 @@
+# Main site-wide playbook - orchestrates all infrastructure deployment
+#
+# STATUS: Phase 1 reconciliation (2026-11-07).
+# - k3s, containerd, and Helm are NOT in scope (Docker Compose is approved)
+# - Several roles are empty stubs and must be implemented before use
+# - PostgreSQL 18.6 is already installed; do NOT reinstall or recreate cluster
+# - deploy user lacks passwordless sudo; Ansible become will fail until fixed
+# - SSH key in inventory must be ~/.ssh/medveris_kamatera (NOT id_ed25519)
+# See docs/IMPLEMENTATION_LOG.md for full reconciliation report.
+
+- name: Configure system settings
+  hosts: all
+  become: true
+  tags:
+    - system
+
+  roles:
+    - common
+
+- name: Configure PostgreSQL (existing installation — harden in place)
+  hosts: all
+  become: true
+  tags:
+    - postgresql
+
+  roles:
+    - postgresql
+
+- name: Install and configure Nginx reverse proxy (only for VPS-hosted services)
+  hosts: all
+  become: true
+  tags:
+    - nginx
+
+  roles:
+    - nginx
+
+# Docker Engine installation (Compose plugin, NOT k3s)
+- name: Install Docker Engine and Compose plugin
+  hosts: all
+  become: true
+  tags:
+    - docker
+
+  roles:
+    - docker
+
+# k3s role REMOVED — k3s/containerd/Helm are not in scope.
+# Approved orchestration: Docker Compose.
+
+- name: Install and configure Ollama
+  hosts: all
+  become: true
+  tags:
+    - ollama
+
+  roles:
+    - ollama
+
+- name: Deploy n8n workflow automation
+  hosts: all
+  become: true
+  tags:
+    - n8n
+
+  roles:
+    - n8n
+
+- name: Configure monitoring and backup
+  hosts: all
+  become: true
+  tags:
+    - monitoring
+    - backup
+
+  roles:
+    - monitoring
+    - backup

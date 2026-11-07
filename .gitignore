@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+pnpm-lockfile*
+
+# Environment variables
+.env*
+
+# Terraform state
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+.terraform/
+.terraform.lock.hcl
+
+# Ansible
+ansible.cfg
+ansible-navigator
+
+# Helm
+charts/*.tgz
+
+# Kubernetes
+.kube/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+.wrangler/
