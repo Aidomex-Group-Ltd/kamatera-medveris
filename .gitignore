@@ -3,7 +3,13 @@ node_modules/
 pnpm-lockfile*
 
 # Environment variables
-.env*
+# The repo may contain templates such as docker/.env.example.
+# Runtime env files stay out of Git.
+.env
+.env.*
+*.env
+!docker/.env.example
+!ansible.cfg
 
 # Terraform state
 *.tfstate
@@ -13,7 +19,6 @@ terraform.tfvars
 .terraform.lock.hcl
 
 # Ansible
-ansible.cfg
 ansible-navigator
 
 # Helm
@@ -31,3 +36,18 @@ charts/*.tgz
 # OS
 .DS_Store
 .wrangler/
+
+# Medveris supporting-services deployment (VPS only)
+# Deployment target and runtime env are not part of the repository.
+/opt/medveris/
+compose.env
+
+# Runtime per-service env files stay out of Git.
+# The repo may still contain templates such as docker/.env.example.
+compose/.env
+docker/.env
+
+# Runner credentials are host-local and must never be committed.
+actions-runner/.credentials
+actions-runner/.credentials_rsaparams
+actions-runner/.runner

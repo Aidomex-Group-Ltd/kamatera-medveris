@@ -1,0 +1,169 @@
+# Medveris supporting services deployment workflow
+#
+# Trigger:
+#  - workflow_dispatch only (initial operational control plane)
+#  - Runs only on the protected main branch
+#  - Runs only on the self-hosted Kamatera runner
+#
+# Security posture:
+#  - Least-privilege GitHub token permissions
+#  - No secrets printed or transferred through logs
+#  - No arbitrary commands or arbitrary deploy paths
+#  - Validate before deploy, verify after deploy, rollback without volume loss
+#
+# This workflow deploys the Docker Compose release to /opt/medveris/compose/.
+# It does not install Docker, modify firewall/SSH/PostgreSQL, or change host
+# network policy. Those are separate, authenticated administrative actions.
+
+name: deploy-supporting-services
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_deploy:
+        description: "Type CONFIRM to proceed with deployment to main."
+        required: true
+        type: string
+      action:
+        description: "Deployment action."
+        required: true
+        type: choice
+        options:
+          - deploy
+          - status
+          - verify
+          - rollback
+        default: "deploy"
+
+permissions:
+  contents: read
+  actions: none
+  deployments: none
+  packages: none
+  security-events: none
+  statuses: none
+
+concurrency:
+  group: medveris-supporting-services
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: validate-repo
+    runs-on: [self-hosted, kamatera]
+    if: |
+      github.ref == 'refs/heads/main' &&
+      (inputs.action == 'deploy' || inputs.action == 'status' ||
+       inputs.action == 'verify' || inputs.action == 'rollback') &&
+      inputs.confirm_deploy == 'CONFIRM'
+    steps:
+      - name: checkout main
+        uses: actions/checkout@v4
+
+      - name: validate workflow inputs
+        run: |
+          echo "Branch: ${GITHUB_REF}"
+          echo "Runner: ${RUNNER_NAME:-}"
+          echo "Action: ${INPUT_ACTION}"
+          echo "Deployment target: /opt/medveris/compose"
+
+      - name: validate compose file syntax
+        run: |
+          COMPOSE_FILE="$(pwd)/docker/compose.yml"
+          if [ ! -f "$COMPOSE_FILE" ]; then
+            echo "::error::compose file not found at $COMPOSE_FILE"
+            exit 1
+          fi
+          # Validate structure without assuming Docker is installed on the runner,
+          # but prefer docker compose if available.
+          if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+            docker compose -f "$COMPOSE_FILE" config --quiet
+          else
+            echo "::warning::docker compose unavailable in this environment; skipping live config validation"
+          fi
+
+      - name: validate no published public ports
+        run: |
+          COMPOSE_FILE="$(pwd)/docker/compose.yml"
+          if [ -f "$COMPOSE_FILE" ]; then
+            if grep -nE '"0\.0\.0\.0:' "$COMPOSE_FILE" >/dev/null; then
+              echo "::error::compose file publishes a port on 0.0.0.0. This is not allowed."
+              exit 1
+            fi
+          fi
+
+      - name: validate no latest tags
+        run: |
+          if [ -f docker/compose.yml ]; then
+            if grep -nE ':latest' docker/compose.yml >/dev/null; then
+              echo "::error::compose file uses :latest tags. Pin all images."
+              exit 1
+            fi
+          fi
+
+  deploy:
+    name: deploy-compose
+    runs-on: [self-hosted, kamatera]
+    needs: validate
+    if: |
+      github.ref == 'refs/heads/main' &&
+      inputs.action == 'deploy' && inputs.confirm_deploy == 'CONFIRM'
+    environment:
+      name: medveris-supporting-services
+    steps:
+      - name: checkout main
+        uses: actions/checkout@v4
+
+      - name: deploy supporting services
+        env:
+          DEPLOY_DIR: /opt/medveris/compose
+        run: |
+          scripts/deploy-compose.sh "$DEPLOY_DIR"
+
+      - name: verify deployment
+        env:
+          DEPLOY_DIR: /opt/medveris/compose
+        run: |
+          scripts/verify-services.sh "$DEPLOY_DIR"
+
+  status:
+    name: status
+    runs-on: [self-hosted, kamatera]
+    if: |
+      github.ref == 'refs/heads/main' &&
+      inputs.action == 'status' && inputs.confirm_deploy == 'CONFIRM'
+    steps:
+      - name: report compose status
+        env:
+          DEPLOY_DIR: /opt/medveris/compose
+        run: |
+          scripts/deploy-compose.sh status "$DEPLOY_DIR"
+
+  verify:
+    name: verify-only
+    runs-on: [self-hosted, kamatera]
+    if: |
+      github.ref == 'refs/heads/main' &&
+      inputs.action == 'verify' && inputs.confirm_deploy == 'CONFIRM'
+    steps:
+      - name: verify deployed services
+        env:
+          DEPLOY_DIR: /opt/medveris/compose
+        run: |
+          scripts/verify-services.sh "$DEPLOY_DIR"
+
+  rollback:
+    name: rollback
+    runs-on: [self-hosted, kamatera]
+    needs: validate
+    if: |
+      github.ref == 'refs/heads/main' &&
+      inputs.action == 'rollback' && inputs.confirm_deploy == 'CONFIRM'
+    environment:
+      name: medveris-supporting-services
+    steps:
+      - name: rollback supporting services
+        env:
+          DEPLOY_DIR: /opt/medveris/compose
+        run: |
+          scripts/rollback-compose.sh "$DEPLOY_DIR"
